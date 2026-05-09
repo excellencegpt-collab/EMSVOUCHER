@@ -5,6 +5,7 @@ import sqlite3
 from datetime import date, datetime, timedelta
 from io import BytesIO, StringIO
 
+import pandas as pd
 import streamlit as st
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
@@ -31,6 +32,24 @@ INSTITUTES = {
         "phone": "02132312333",
         "logo": EMS_LOGO_FILE,
     },
+}
+
+# ── Excel Import Column Mapping ──────────────────────────────────────────────
+# Excel mein yeh columns hone chahiye (case-insensitive)
+EXCEL_COLUMNS = {
+    "student_name":  ["student name", "student", "name"],
+    "father_name":   ["father name", "father", "parent name"],
+    "class_name":    ["class", "class name", "grade"],
+    "roll_no":       ["roll no", "roll number", "roll"],
+    "month":         ["month", "fee month"],
+    "admission_fee": ["admission fee", "admission"],
+    "tuition_fee":   ["tuition fee", "tuition", "monthly fee"],
+    "annual_fee":    ["annual fee", "annual"],
+    "exam_fee":      ["exam fee", "exam"],
+    "late_fee":      ["late fee", "late"],
+    "discount":      ["discount"],
+    "notes":         ["notes", "note", "remarks"],
+    "institute":     ["institute", "school", "institution"],
 }
 
 
@@ -287,6 +306,30 @@ def create_voucher_pdf(values):
     return buffer.getvalue()
 
 
+def create_bulk_pdf(all_values):
+    """Multiple students ke liye ek PDF mein sab vouchers"""
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        rightMargin=14 * mm,
+        leftMargin=14 * mm,
+        topMargin=12 * mm,
+        bottomMargin=12 * mm,
+        title="Bulk Fee Vouchers",
+    )
+    story = []
+    for i, values in enumerate(all_values):
+        story.extend(voucher_copy(values, "PARENT COPY"))
+        story.append(Spacer(1, 8 * mm))
+        story.extend(voucher_copy(values, "ACADEMY COPY"))
+        if i < len(all_values) - 1:
+            from reportlab.platypus import PageBreak
+            story.append(PageBreak())
+    doc.build(story)
+    return buffer.getvalue()
+
+
 def image_to_data_url(path):
     if not os.path.exists(path):
         return ""
@@ -295,10 +338,139 @@ def image_to_data_url(path):
     return f"data:image/png;base64,{encoded}"
 
 
+# ── Excel Import Helper Functions ────────────────────────────────────────────
+
+def find_column(df_columns, field_key):
+    """Excel column ko map karo field name se (case-insensitive)"""
+    aliases = EXCEL_COLUMNS.get(field_key, [field_key])
+    df_cols_lower = {c.lower().strip(): c for c in df_columns}
+    for alias in aliases:
+        if alias.lower() in df_cols_lower:
+            return df_cols_lower[alias.lower()]
+    return None
+
+
+def parse_excel_import(uploaded_file, default_institute, default_issue_date, default_due_date, default_month):
+    """Excel/CSV file parse karke list of student dicts return karo"""
+    try:
+        if uploaded_file.name.endswith(".csv"):
+            df = pd.read_csv(uploaded_file)
+        else:
+            df = pd.read_excel(uploaded_file)
+    except Exception as e:
+        return None, f"File read error: {e}"
+
+    df.columns = [str(c).strip() for c in df.columns]
+    students = []
+    errors = []
+
+    for idx, row in df.iterrows():
+        row_num = idx + 2  # header + 1-indexed
+
+        def get_val(field, default=""):
+            col = find_column(df.columns, field)
+            if col and pd.notna(row.get(col, None)):
+                return str(row[col]).strip()
+            return default
+
+        def get_int(field, default=0):
+            col = find_column(df.columns, field)
+            if col and pd.notna(row.get(col, None)):
+                try:
+                    return int(float(str(row[col]).replace(",", "").replace("Rs.", "").strip()))
+                except:
+                    return default
+            return default
+
+        student_name = get_val("student_name")
+        if not student_name:
+            errors.append(f"Row {row_num}: Student Name missing — skip kiya gaya")
+            continue
+
+        # Institute validate karo
+        inst_val = get_val("institute", default_institute)
+        if inst_val not in INSTITUTES:
+            inst_val = default_institute
+
+        rec = {
+            "institute": inst_val,
+            "voucher_no": next_voucher_no(inst_val),
+            "student_name": student_name,
+            "father_name": get_val("father_name", "N/A"),
+            "class_name": get_val("class_name", "-"),
+            "roll_no": get_val("roll_no", "-"),
+            "month": get_val("month", default_month),
+            "issue_date": default_issue_date,
+            "due_date": default_due_date,
+            "admission_fee": get_int("admission_fee"),
+            "tuition_fee": get_int("tuition_fee"),
+            "annual_fee": get_int("annual_fee"),
+            "exam_fee": get_int("exam_fee"),
+            "late_fee": get_int("late_fee"),
+            "discount": get_int("discount"),
+            "notes": get_val("notes", "Late fee will be charged after due date."),
+        }
+        rec["total_amount"] = total_fee(rec)
+        students.append(rec)
+
+    return students, errors
+
+
+def generate_sample_excel():
+    """Sample Excel template download ke liye"""
+    sample_data = {
+        "Student Name": ["Ali Hassan", "Sara Ahmed"],
+        "Father Name": ["Hassan Ali", "Ahmed Khan"],
+        "Class": ["8-A", "7-B"],
+        "Roll No": ["101", "102"],
+        "Month": ["May 2026", "May 2026"],
+        "Tuition Fee": [3000, 3000],
+        "Admission Fee": [0, 500],
+        "Annual Fee": [0, 1000],
+        "Exam Fee": [500, 500],
+        "Late Fee": [0, 0],
+        "Discount": [0, 200],
+        "Notes": ["", "Scholarship student"],
+        "Institute": ["Academy of Excellence", "Excellence Model School"],
+    }
+    df = pd.DataFrame(sample_data)
+    buffer = BytesIO()
+    with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+        df.to_excel(writer, index=False, sheet_name="Students")
+    return buffer.getvalue()
+
+
+def export_history_excel(records):
+    """Voucher history ko Excel mein export karo"""
+    rows = []
+    for r in records:
+        rows.append({
+            "Voucher No": r[0],
+            "Created At": r[1],
+            "Institute": r[2],
+            "Student Name": r[3],
+            "Father Name": r[4],
+            "Class": r[5],
+            "Roll No": r[6],
+            "Month": r[7],
+            "Due Date": r[8],
+            "Total Amount": r[9],
+        })
+    df = pd.DataFrame(rows)
+    buffer = BytesIO()
+    with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+        df.to_excel(writer, index=False, sheet_name="Voucher History")
+    return buffer.getvalue()
+
+
+# ── Streamlit UI ─────────────────────────────────────────────────────────────
+
 st.set_page_config(page_title=APP_NAME, layout="wide")
 init_database()
 if "selected_institute" not in st.session_state:
     st.session_state.selected_institute = "Academy of Excellence"
+if "imported_students" not in st.session_state:
+    st.session_state.imported_students = []
 
 st.markdown(
     """
@@ -336,6 +508,13 @@ st.markdown(
         border-radius: 12px;
         padding: 18px;
     }
+    .import-box {
+        background: #1a1a2e;
+        border: 1px dashed #f0b429;
+        border-radius: 12px;
+        padding: 18px;
+        margin-bottom: 12px;
+    }
     .stButton > button, .stDownloadButton > button {
         background: #f0b429 !important;
         color: #111111 !important;
@@ -369,27 +548,14 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-voucher_tab, history_tab, setup_tab = st.tabs(["Create Voucher", "Voucher History", "Logo Setup"])
+voucher_tab, import_tab, history_tab, setup_tab = st.tabs([
+    "➕ Create Voucher",
+    "📥 Import from Excel",
+    "📋 Voucher History",
+    "🖼️ Logo Setup",
+])
 
-with setup_tab:
-    st.subheader("Logo Setup")
-    st.info("Dropdown mein institute select karne par uska logo automatically PDF voucher mein aayega.")
-    logo_cols = st.columns(2)
-    for logo_col, (institute_name, info) in zip(logo_cols, INSTITUTES.items()):
-        with logo_col:
-            st.markdown(f"#### {institute_name}")
-            if os.path.exists(info["logo"]):
-                st.image(info["logo"], width=180)
-            uploaded_logo = st.file_uploader(
-                f"Replace {info['short']} Logo",
-                type=["png", "jpg", "jpeg"],
-                key=f"logo_{info['short']}",
-            )
-            if uploaded_logo:
-                with open(info["logo"], "wb") as file:
-                    file.write(uploaded_logo.getbuffer())
-                st.success(f"{info['short']} logo saved.")
-
+# ── TAB 1: Create Single Voucher ─────────────────────────────────────────────
 with voucher_tab:
     left, right = st.columns([1, 1], gap="large")
     with left:
@@ -458,10 +624,161 @@ with voucher_tab:
         )
         st.markdown('</div>', unsafe_allow_html=True)
 
+# ── TAB 2: Import from Excel ─────────────────────────────────────────────────
+with import_tab:
+    st.subheader("📥 Excel / CSV se Bulk Import")
+
+    # Sample template download
+    st.markdown("#### Step 1: Sample Template Download Karen")
+    st.info(
+        "Pehle sample Excel template download karein, usme data fill karein, phir upload karein. "
+        "Columns ka naam change mat karein."
+    )
+    st.download_button(
+        "⬇️ Sample Excel Template Download",
+        data=generate_sample_excel(),
+        file_name="fee_voucher_template.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
+    st.divider()
+
+    # Upload section
+    st.markdown("#### Step 2: Apni Excel File Upload Karen")
+
+    imp_cols = st.columns([1, 1])
+    with imp_cols[0]:
+        default_institute_imp = st.selectbox(
+            "Default Institute (agar Excel mein column na ho)",
+            list(INSTITUTES.keys()),
+            key="imp_institute",
+        )
+    with imp_cols[1]:
+        default_month_imp = st.text_input(
+            "Default Fee Month",
+            value=datetime.now().strftime("%B %Y"),
+            key="imp_month",
+        )
+
+    date_imp_cols = st.columns(2)
+    default_issue = date_imp_cols[0].date_input("Issue Date (sab ke liye)", value=date.today(), key="imp_issue")
+    default_due = date_imp_cols[1].date_input("Due Date (sab ke liye)", value=date.today() + timedelta(days=10), key="imp_due")
+
+    uploaded_file = st.file_uploader(
+        "Excel (.xlsx) ya CSV (.csv) file select karein",
+        type=["xlsx", "xls", "csv"],
+        key="excel_import",
+    )
+
+    if uploaded_file:
+        students, errors = parse_excel_import(
+            uploaded_file,
+            default_institute=default_institute_imp,
+            default_issue_date=default_issue.strftime("%d-%m-%Y"),
+            default_due_date=default_due.strftime("%d-%m-%Y"),
+            default_month=default_month_imp,
+        )
+
+        if errors:
+            for err in errors:
+                st.warning(err)
+
+        if students:
+            st.success(f"✅ {len(students)} students ka data successfully parse hua!")
+            st.session_state.imported_students = students
+
+            # Preview table
+            st.markdown("#### Preview — Data Check Karen")
+            preview_rows = []
+            for s in students:
+                preview_rows.append({
+                    "Student": s["student_name"],
+                    "Father": s["father_name"],
+                    "Class": s["class_name"],
+                    "Roll No": s["roll_no"],
+                    "Month": s["month"],
+                    "Institute": s["institute"],
+                    "Tuition": s["tuition_fee"],
+                    "Total": s["total_amount"],
+                })
+            st.dataframe(preview_rows, use_container_width=True, hide_index=True)
+
+            st.divider()
+            st.markdown("#### Step 3: Bulk Actions")
+
+            action_cols = st.columns(3)
+
+            # Bulk save to DB
+            if action_cols[0].button("💾 Sab Records Save Karein", use_container_width=True):
+                saved = 0
+                failed = 0
+                for s in students:
+                    try:
+                        save_voucher(s)
+                        saved += 1
+                    except sqlite3.IntegrityError:
+                        failed += 1
+                if saved:
+                    st.success(f"{saved} vouchers database mein save ho gaye!")
+                if failed:
+                    st.warning(f"{failed} vouchers already exist the, skip kiye gaye.")
+
+            # Bulk PDF download
+            if action_cols[1].button("📄 Sab PDF Generate Karein", use_container_width=True):
+                with st.spinner("PDF bana raha hoon..."):
+                    bulk_pdf = create_bulk_pdf(students)
+                st.download_button(
+                    "⬇️ Bulk PDF Download",
+                    data=bulk_pdf,
+                    file_name=f"bulk_vouchers_{datetime.now().strftime('%Y%m%d%H%M%S')}.pdf",
+                    mime="application/pdf",
+                    use_container_width=True,
+                )
+
+            # Export back to Excel with totals
+            export_rows = []
+            for s in students:
+                export_rows.append({
+                    "Voucher No": s["voucher_no"],
+                    "Institute": s["institute"],
+                    "Student Name": s["student_name"],
+                    "Father Name": s["father_name"],
+                    "Class": s["class_name"],
+                    "Roll No": s["roll_no"],
+                    "Month": s["month"],
+                    "Issue Date": s["issue_date"],
+                    "Due Date": s["due_date"],
+                    "Admission Fee": s["admission_fee"],
+                    "Tuition Fee": s["tuition_fee"],
+                    "Annual Fee": s["annual_fee"],
+                    "Exam Fee": s["exam_fee"],
+                    "Late Fee": s["late_fee"],
+                    "Discount": s["discount"],
+                    "Total Amount": s["total_amount"],
+                    "Notes": s["notes"],
+                })
+            df_export = pd.DataFrame(export_rows)
+            exp_buffer = BytesIO()
+            with pd.ExcelWriter(exp_buffer, engine="openpyxl") as writer:
+                df_export.to_excel(writer, index=False, sheet_name="Processed Vouchers")
+            action_cols[2].download_button(
+                "📊 Processed Excel Export",
+                data=exp_buffer.getvalue(),
+                file_name=f"processed_vouchers_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True,
+            )
+        else:
+            if not errors:
+                st.error("File mein koi valid data nahi mila.")
+
+# ── TAB 3: History ────────────────────────────────────────────────────────────
 with history_tab:
     st.subheader("Voucher History")
-    query = st.text_input("Search voucher, student, father, class, roll no, or month")
+    h_cols = st.columns([3, 1])
+    query = h_cols[0].text_input("Search voucher, student, father, class, roll no, or month")
     records = get_vouchers(query.strip())
+
     if records:
         rows = [
             {
@@ -480,15 +797,49 @@ with history_tab:
         ]
         st.dataframe(rows, use_container_width=True, hide_index=True)
 
+        exp_cols = st.columns(2)
+
+        # CSV export
         output = StringIO()
         writer = csv.writer(output)
         writer.writerow(["Voucher No", "Created At", "Institute", "Student", "Father", "Class", "Roll No", "Month", "Due Date", "Total"])
         writer.writerows(records)
-        st.download_button(
-            "Download CSV",
+        exp_cols[0].download_button(
+            "⬇️ CSV Export",
             data=output.getvalue(),
             file_name=f"voucher_history_{datetime.now().strftime('%Y%m%d')}.csv",
             mime="text/csv",
+            use_container_width=True,
+        )
+
+        # Excel export
+        excel_data = export_history_excel(records)
+        exp_cols[1].download_button(
+            "📊 Excel Export",
+            data=excel_data,
+            file_name=f"voucher_history_{datetime.now().strftime('%Y%m%d')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
         )
     else:
         st.info("No voucher records found.")
+
+# ── TAB 4: Logo Setup ─────────────────────────────────────────────────────────
+with setup_tab:
+    st.subheader("Logo Setup")
+    st.info("Dropdown mein institute select karne par uska logo automatically PDF voucher mein aayega.")
+    logo_cols = st.columns(2)
+    for logo_col, (institute_name, info) in zip(logo_cols, INSTITUTES.items()):
+        with logo_col:
+            st.markdown(f"#### {institute_name}")
+            if os.path.exists(info["logo"]):
+                st.image(info["logo"], width=180)
+            uploaded_logo = st.file_uploader(
+                f"Replace {info['short']} Logo",
+                type=["png", "jpg", "jpeg"],
+                key=f"logo_{info['short']}",
+            )
+            if uploaded_logo:
+                with open(info["logo"], "wb") as file:
+                    file.write(uploaded_logo.getbuffer())
+                st.success(f"{info['short']} logo saved.")
