@@ -13,7 +13,7 @@ from reportlab.lib.units import mm
 from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 
-APP_NAME = "EMS and AOE Fee Voucher"
+APP_NAME = "Fee Voucher"
 DB_FILE = os.environ.get("VOUCHER_DB_PATH", "voucher_records.db")
 AOE_LOGO_FILE = "academy_of_excellence_logo.png"
 EMS_LOGO_FILE = "excellence_model_school_logo.png"
@@ -361,8 +361,8 @@ st.markdown(
     <div class="hero">
         {logo_html}
         <div>
-            <div class="hero-title">EMS and AOE Fee Voucher</div>
-            <div class="hero-sub">Parent Copy + Academy Copy PDF Generator</div>
+            <div class="hero-title">Fee Voucher</div>
+            <div class="hero-sub">Excellence Online</div>
         </div>
     </div>
     """,
