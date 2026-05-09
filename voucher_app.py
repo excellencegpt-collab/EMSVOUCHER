@@ -435,7 +435,7 @@ def generate_sample_excel():
     }
     df = pd.DataFrame(sample_data)
     buffer = BytesIO()
-    with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+    with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
         df.to_excel(writer, index=False, sheet_name="Students")
     return buffer.getvalue()
 
@@ -458,7 +458,7 @@ def export_history_excel(records):
         })
     df = pd.DataFrame(rows)
     buffer = BytesIO()
-    with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+    with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
         df.to_excel(writer, index=False, sheet_name="Voucher History")
     return buffer.getvalue()
 
@@ -759,7 +759,7 @@ with import_tab:
                 })
             df_export = pd.DataFrame(export_rows)
             exp_buffer = BytesIO()
-            with pd.ExcelWriter(exp_buffer, engine="openpyxl") as writer:
+            with pd.ExcelWriter(exp_buffer, engine="xlsxwriter") as writer:
                 df_export.to_excel(writer, index=False, sheet_name="Processed Vouchers")
             action_cols[2].download_button(
                 "📊 Processed Excel Export",
