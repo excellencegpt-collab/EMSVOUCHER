@@ -396,9 +396,6 @@ with voucher_tab:
         st.markdown('<div class="panel">', unsafe_allow_html=True)
         st.subheader("Student Details")
         institute = st.selectbox("Institute", list(INSTITUTES.keys()), key="selected_institute")
-        selected_logo = INSTITUTES[institute]["logo"]
-        if os.path.exists(selected_logo):
-            st.image(selected_logo, width=160)
         voucher_no = st.text_input("Voucher No", value=next_voucher_no(institute))
         student_name = st.text_input("Student Name")
         father_name = st.text_input("Father Name")
