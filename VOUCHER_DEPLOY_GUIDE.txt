@@ -1,0 +1,32 @@
+EMS and AOE Voucher App
+=======================
+
+Files to upload on GitHub
+-------------------------
+voucher_app.py
+requirements.txt
+
+Important
+---------
+On GitHub, rename voucher_requirements.txt to requirements.txt, or upload the copied
+requirements.txt from the Desktop folder.
+
+Streamlit Deploy Settings
+-------------------------
+Repository: your-github-username/your-voucher-repo
+Branch: main
+Main file path: voucher_app.py
+
+Features
+--------
+- Academy of Excellence / Excellence Model School selection
+- Logo upload
+- Student details
+- Fee details
+- Parent copy + Academy copy PDF voucher
+- Voucher history
+- CSV export
+
+Recommended GitHub Repo Name
+----------------------------
+ems-aoe-voucher-app
