@@ -297,6 +297,8 @@ def image_to_data_url(path):
 
 st.set_page_config(page_title=APP_NAME, layout="wide")
 init_database()
+if "selected_institute" not in st.session_state:
+    st.session_state.selected_institute = "Academy of Excellence"
 
 st.markdown(
     """
@@ -351,7 +353,8 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-logo_url = image_to_data_url(AOE_LOGO_FILE)
+active_logo = INSTITUTES[st.session_state.selected_institute]["logo"]
+logo_url = image_to_data_url(active_logo)
 logo_html = f'<img class="hero-logo" src="{logo_url}" alt="Logo">' if logo_url else '<div class="hero-logo"></div>'
 st.markdown(
     f"""
@@ -392,7 +395,10 @@ with voucher_tab:
     with left:
         st.markdown('<div class="panel">', unsafe_allow_html=True)
         st.subheader("Student Details")
-        institute = st.selectbox("Institute", list(INSTITUTES.keys()))
+        institute = st.selectbox("Institute", list(INSTITUTES.keys()), key="selected_institute")
+        selected_logo = INSTITUTES[institute]["logo"]
+        if os.path.exists(selected_logo):
+            st.image(selected_logo, width=160)
         voucher_no = st.text_input("Voucher No", value=next_voucher_no(institute))
         student_name = st.text_input("Student Name")
         father_name = st.text_input("Father Name")
