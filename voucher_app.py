@@ -15,18 +15,21 @@ from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer, Tabl
 
 APP_NAME = "EMS and AOE Fee Voucher"
 DB_FILE = os.environ.get("VOUCHER_DB_PATH", "voucher_records.db")
-LOGO_FILE = "voucher_logo.png"
+AOE_LOGO_FILE = "academy_of_excellence_logo.png"
+EMS_LOGO_FILE = "excellence_model_school_logo.png"
 
 INSTITUTES = {
     "Academy of Excellence": {
         "short": "AOE",
         "address": "Clifton, Karachi",
         "phone": "+92 347 6821871",
+        "logo": AOE_LOGO_FILE,
     },
     "Excellence Model School": {
         "short": "EMS",
         "address": "Clifton, Karachi",
         "phone": "+92 347 6821871",
+        "logo": EMS_LOGO_FILE,
     },
 }
 
@@ -138,9 +141,10 @@ def get_vouchers(query=""):
         return conn.execute(sql, params).fetchall()
 
 
-def logo_flowable(width=22 * mm, height=22 * mm):
-    if os.path.exists(LOGO_FILE):
-        return Image(LOGO_FILE, width=width, height=height)
+def logo_flowable(institute_name, width=22 * mm, height=22 * mm):
+    logo_path = INSTITUTES[institute_name]["logo"]
+    if os.path.exists(logo_path):
+        return Image(logo_path, width=width, height=height)
     return Paragraph("LOGO", ParagraphStyle("LogoBox", alignment=1, fontSize=10, leading=12))
 
 
@@ -174,7 +178,7 @@ def voucher_copy(values, copy_label):
     header = Table(
         [
             [
-                logo_flowable(),
+                logo_flowable(values["institute"]),
                 [
                     Paragraph(values["institute"].upper(), title),
                     Paragraph(f"{institute['address']} | {institute['phone']}", sub),
@@ -347,7 +351,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-logo_url = image_to_data_url(LOGO_FILE)
+logo_url = image_to_data_url(AOE_LOGO_FILE)
 logo_html = f'<img class="hero-logo" src="{logo_url}" alt="Logo">' if logo_url else '<div class="hero-logo"></div>'
 st.markdown(
     f"""
@@ -366,16 +370,22 @@ voucher_tab, history_tab, setup_tab = st.tabs(["Create Voucher", "Voucher Histor
 
 with setup_tab:
     st.subheader("Logo Setup")
-    uploaded_logo = st.file_uploader("Upload Academy / School Logo", type=["png", "jpg", "jpeg"])
-    if uploaded_logo:
-        with open(LOGO_FILE, "wb") as file:
-            file.write(uploaded_logo.getbuffer())
-        st.success("Logo saved. Voucher PDF mein ye logo use hoga.")
-        st.image(LOGO_FILE, width=140)
-    elif os.path.exists(LOGO_FILE):
-        st.image(LOGO_FILE, width=140)
-    else:
-        st.info("Logo upload karein. Jab tak logo nahi hoga PDF mein LOGO placeholder aayega.")
+    st.info("Dropdown mein institute select karne par uska logo automatically PDF voucher mein aayega.")
+    logo_cols = st.columns(2)
+    for logo_col, (institute_name, info) in zip(logo_cols, INSTITUTES.items()):
+        with logo_col:
+            st.markdown(f"#### {institute_name}")
+            if os.path.exists(info["logo"]):
+                st.image(info["logo"], width=180)
+            uploaded_logo = st.file_uploader(
+                f"Replace {info['short']} Logo",
+                type=["png", "jpg", "jpeg"],
+                key=f"logo_{info['short']}",
+            )
+            if uploaded_logo:
+                with open(info["logo"], "wb") as file:
+                    file.write(uploaded_logo.getbuffer())
+                st.success(f"{info['short']} logo saved.")
 
 with voucher_tab:
     left, right = st.columns([1, 1], gap="large")
