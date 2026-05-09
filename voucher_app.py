@@ -21,14 +21,14 @@ EMS_LOGO_FILE = "excellence_model_school_logo.png"
 INSTITUTES = {
     "Academy of Excellence": {
         "short": "AOE",
-        "address": "Clifton, Karachi",
-        "phone": "+92 347 6821871",
+        "address": "Kharadar, Karachi",
+        "phone": "02132312333",
         "logo": AOE_LOGO_FILE,
     },
     "Excellence Model School": {
         "short": "EMS",
-        "address": "Clifton, Karachi",
-        "phone": "+92 347 6821871",
+        "address": "Kharadar, Karachi",
+        "phone": "02132312333",
         "logo": EMS_LOGO_FILE,
     },
 }
